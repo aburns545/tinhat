@@ -15,13 +15,6 @@
 
 (def check-spec-interceptor (rf/after (partial check-and-throw :todomvc.db/db)))
 
-(defn dispatch-timer-event
-  []
-  (let [now (js/Date.)]
-    (rf/dispatch [:timer now])))
-
-(defonce do-timer (js/setInterval dispatch-timer-event 1000))
-
 (defn long-message
   []
   (str "What the jiminy crickets did you just flaming say about me,"
@@ -99,26 +92,6 @@
             (assoc db :active-chat (first (keys (:chat-log db))))))))
 
 (rf/reg-event-db
-  :timer
-  (fn [db [_ new-time]]
-    (assoc db :time new-time)))
-
-(rf/reg-event-db
-  :time-color-change
-  (fn [db [_ new-color-value]]
-    (assoc db :time-color (str/upper-case new-color-value))))
-
-(rf/reg-event-db
-  :temp-time-color-change
-  (fn [db [_ new-color-value]]
-    (assoc db :temp-time-color (str/upper-case new-color-value))))
-
-(rf/reg-event-db
-  :name-change
-  (fn [db [_ new-name]]
-    (assoc db :name (str/capitalize new-name))))
-
-(rf/reg-event-db
   :set-active-chat
   (fn [db [_ new-chat]]
     (assoc db :active-chat new-chat)))
@@ -185,7 +158,7 @@
              \"ExpressionAttributeValues\": {
                  \":person\": \"" contact "\"
              },
-             \"Limit\": 15
+             \"Limit\": 20
          }
      }"))
 

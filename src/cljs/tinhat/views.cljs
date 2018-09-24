@@ -8,52 +8,7 @@
     [clojure.string :as str]
     [tinhat.events :as events]))
 
-
-(def table (r/adapt-react-class (.-Table js/ReactBootstrap)))
-
 (def button (r/adapt-react-class (.-Button js/ReactBootstrap)))
-
-(defn clock
-  []
-  [:div.test
-   {:style {:color @(rf/subscribe [:time-color])}}
-   (-> @(rf/subscribe [:time])
-       .toTimeString
-       (str/split " ")
-       first)])
-
-(defn color-input
-  []
-  [:div.color-input
-   {:style {:color @(rf/subscribe [:time-color])}}
-   "Time color: "
-   [:input {:type         "text"
-            :value        @(rf/subscribe [:temp-time-color])
-            :on-change    #(rf/dispatch [:temp-time-color-change (-> %
-                                                                     .-target
-                                                                     .-value)])
-            :on-submit    #(rf/dispatch [:time-color-change
-                                         (-> %
-                                             .-target
-                                             .-value)])
-            :on-key-press #(when (= "Enter" (.-key %))
-                             (rf/dispatch [:time-color-change
-                                           (-> %
-                                               .-target
-                                               .-value)]))}]
-   [button {:on-click #(rf/dispatch [:time-color-change
-                                     @(rf/subscribe [:temp-time-color])])}
-    [:label "Submit"]]])
-
-(defn name-input
-  []
-  [:div.name-input
-   "Name? "
-   [:input {:type      "text"
-            :value     @(rf/subscribe [::subs/name])
-            :on-change #(rf/dispatch [:name-change (-> %
-                                                       .-target
-                                                       .-value)])}]])
 
 (defn message-input
   [temp-message]
@@ -123,12 +78,6 @@
          [:tr
           [:td
            (second message)]]]])]))
-
-(defn hello-world-stuff
-  []
-  [:h1 [clock]]
-  [name-input]
-  [color-input])
 
 (defn content
   [temp-message]
