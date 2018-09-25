@@ -6,7 +6,8 @@
     [clojure.string :as str]
     [day8.re-frame.http-fx]
     [ajax.core :as ajax]
-    [tinhat.config :as config]))
+    [tinhat.config :as config]
+    [tinhat.util :as util]))
 
 (defn check-and-throw
   [a-spec db]
@@ -45,19 +46,6 @@
        "leaves all over you and you will dance in them. You’re friggin "
        "done, kiddo."))
 
-(defn get-time
-  []
-  (-> (js/Date.)
-      .toTimeString
-      (str/split " ")
-      first))
-
-(defn create-messages
-  [message-set]
-  (->> message-set
-       (map #(conj % (random-uuid) (get-time)))
-       (into [])))
-
 ; TODO: probably will need to use ordered-map at some point
 (rf/reg-event-db
   ::initialize-db
@@ -67,28 +55,28 @@
       (as-> appdb db
             (assoc db :chat-log {"Jimmy"  (-> [[:in "hi"]
                                                [:out "hello"]]
-                                              create-messages)
+                                              util/create-messages)
                                  "Johnny" (-> [[:out "bye"]
                                                [:in "goodbye"]]
-                                              create-messages)
+                                              util/create-messages)
                                  "Jamie"  (-> [[:out "message 1"]
                                                [:out "message 2"]
                                                [:in "message 3"]]
-                                              create-messages)
+                                              util/create-messages)
                                  "Jammy"  (-> [[:out "blah"]
                                                [:in "message"]
                                                [:out "ah"]
                                                [:out "eh"]]
-                                              create-messages)
+                                              util/create-messages)
                                  "Junie"  (-> [[:in "abasd"]
                                                [:out "What?"]
                                                [:in "akl;jk"]
                                                [:in "tesfdsg"]
                                                [:in "skdflsfjkd"]]
-                                              create-messages)
+                                              util/create-messages)
                                  "Jerry"  (-> [[:out "<expletive>"]
                                                [:in (long-message)]]
-                                              create-messages)})
+                                              util/create-messages)})
             (assoc db :active-chat (first (keys (:chat-log db))))))))
 
 (rf/reg-event-db
@@ -139,6 +127,7 @@
                   \"contact\": \"" (:active-chat db) "\",
                   \"message\": \"" (second message) "\",
                   \"time\": \"" (last message) "\",
+                  \"date\": \"" (nth message 3) "\",
                   \"direction\": \"" (-> message
                                          first
                                          str
@@ -162,23 +151,38 @@
          }
      }"))
 
-(defn map-to-vector
-  [{:keys [GUID message time date direction]}]
-  [(keyword direction) message GUID date time])
+(defn map-to-vector-new
+  [message-map]
+  [(keyword (get message-map "direction"))
+   (get message-map "message")
+   (get message-map "uuid")
+   (get message-map "date")
+   (get message-map "time")])
 
 (rf/reg-event-db
   :assoc-messages
   (fn [db [_ message-set]]
     (->>
-      (->> message-set
-           :Items
-           (map map-to-vector)
-           (into []))
+      (-> message-set
+          (get "Items"))
+      (map map-to-vector-new)
+      (into [])
       (concat (-> db
                   :chat-log
-                  (get (:contact (first message-set)))))
-      (assoc (:chat-log db) (:contact (first message-set)))
+                  (get (:active-chat db))))
+      (assoc (:chat-log db) (:active-chat db))
       (assoc db :chat-log))))
+
+(def default-api-params
+  {:method          :post
+   :uri             config/api-url
+   :headers         {:Authorization "Basic"}
+   :timeout         8000
+   :params          nil
+   :format          (ajax/text-request-format)
+   :response-format (ajax/json-response-format)
+   :on-success      [:good-http-result]
+   :on-failure      [:bad-http-result]})
 
 (rf/reg-event-fx
   :send-message
@@ -191,7 +195,7 @@
                                                        message
                                                        config/table-name)
                   :format          (ajax/text-request-format)
-                  :response-format (ajax/json-response-format {:keywords? true})
+                  :response-format (ajax/json-response-format)
                   :on-success      [:good-http-result]
                   :on-failure      [:bad-http-result]}}))
 
@@ -200,20 +204,27 @@
   (fn [{:keys [db]} [_ _]]
     {:http-xhrio {:method          :post
                   :uri             config/api-url
+                  :headers         {:Authorization "Basic"}
                   :timeout         8000
                   :params          (post-params-query (:active-chat db)
                                                       config/table-name)
                   :format          (ajax/text-request-format)
                   :response-format (ajax/json-response-format)
-                  :on-success      [:assoc-message]
-                  :on-failure      [:bad-http-result]}}))
+                  :on-success      [:assoc-messages]
+                  :on-failure      [:assoc-messages]}}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
   :get-message
-  (fn [db [_ _]]
-    (let [message (rand-nth ["Hi"
-                             "Hello"
-                             "New phone who dis?"
-                             "Stop contacting me"
-                             "wyd?"])]
-      (add-message-to-db db [:in message (random-uuid) (get-time)]))))
+  (fn [{:keys [db]} [_ message]]
+    {:db (add-message-to-db db message)
+     :http-xhrio {:method          :post
+                  :uri             config/api-url
+                  :headers         {:Authorization "Basic"}
+                  :timeout         8000
+                  :params (post-params-create db
+                                              message
+                                              config/table-name)
+                  :format          (ajax/text-request-format)
+                  :response-format (ajax/json-response-format)
+                  :on-success      [:good-http-result]
+                  :on-failure      [:bad-http-result]}}))
