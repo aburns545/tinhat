@@ -2,19 +2,13 @@
   (:require
     [re-frame.core :as rf]
     [tinhat.db :as db]
-    [cljs.spec.alpha :as s]
     [clojure.string :as str]
     [day8.re-frame.http-fx]
     [ajax.core :as ajax]
     [tinhat.config :as config]
-    [tinhat.util :as util]))
-
-(defn check-and-throw
-  [a-spec db]
-  (when-not (s/valid? a-spec db)
-    (throw (ex-info (str "spec check failed: " (s/explain-str a-spec db)) {}))))
-
-(def check-spec-interceptor (rf/after (partial check-and-throw :todomvc.db/db)))
+    [tinhat.util :as util]
+    [cljs-time.core :as time]
+    [cljs-time.coerce :as coerce]))
 
 (defn long-message
   []
@@ -50,34 +44,32 @@
 (rf/reg-event-db
   ::initialize-db
   (fn [_ _]
-    [check-spec-interceptor]
-    (let [appdb db/default-db]
-      (as-> appdb db
-            (assoc db :chat-log {"Jimmy"  (-> [[:in "hi"]
-                                               [:out "hello"]]
-                                              util/create-messages)
-                                 "Johnny" (-> [[:out "bye"]
-                                               [:in "goodbye"]]
-                                              util/create-messages)
-                                 "Jamie"  (-> [[:out "message 1"]
-                                               [:out "message 2"]
-                                               [:in "message 3"]]
-                                              util/create-messages)
-                                 "Jammy"  (-> [[:out "blah"]
-                                               [:in "message"]
-                                               [:out "ah"]
-                                               [:out "eh"]]
-                                              util/create-messages)
-                                 "Junie"  (-> [[:in "abasd"]
-                                               [:out "What?"]
-                                               [:in "akl;jk"]
-                                               [:in "tesfdsg"]
-                                               [:in "skdflsfjkd"]]
-                                              util/create-messages)
-                                 "Jerry"  (-> [[:out "<expletive>"]
-                                               [:in (long-message)]]
-                                              util/create-messages)})
-            (assoc db :active-chat (first (keys (:chat-log db))))))))
+    (as-> db/default-db db
+          (assoc db :chat-log {"Jimmy"  (-> [[:in "hi"]
+                                             [:out "hello"]]
+                                            util/create-messages)
+                               "Johnny" (-> [[:out "bye"]
+                                             [:in "goodbye"]]
+                                            util/create-messages)
+                               "Jamie"  (-> [[:out "message 1"]
+                                             [:out "message 2"]
+                                             [:in "message 3"]]
+                                            util/create-messages)
+                               "Jammy"  (-> [[:out "blah"]
+                                             [:in "message"]
+                                             [:out "ah"]
+                                             [:out "eh"]]
+                                            util/create-messages)
+                               "Junie"  (-> [[:in "abasd"]
+                                             [:out "What?"]
+                                             [:in "akl;jk"]
+                                             [:in "tesfdsg"]
+                                             [:in "skdflsfjkd"]]
+                                            util/create-messages)
+                               "Jerry"  (-> [[:out "<expletive>"]
+                                             [:in (long-message)]]
+                                            util/create-messages)})
+          (assoc db :active-chat (first (keys (:chat-log db)))))))
 
 (rf/reg-event-db
   :set-active-chat
@@ -100,9 +92,9 @@
     (assoc db :toggle-sidebar? (not toggle))))
 
 (rf/reg-event-db
-  :add-recipient
-  (fn [db [_ recipient]]
-    (as-> recipient r
+  :add-contact
+  (fn [db [_ contact]]
+    (as-> contact r
           (assoc (:chat-log db) r [])
           (assoc db :chat-log r))))
 
@@ -123,13 +115,14 @@
          \"tableName\": \"" tableName "\",
          \"payload\": {
              \"Item\": {
-                 \"uuid\": \"" (nth message 2) "\",
+                 \"uuid\": \"" (:uuid message) "\",
                   \"contact\": \"" (:active-chat db) "\",
-                  \"message\": \"" (second message) "\",
-                  \"time\": \"" (last message) "\",
-                  \"date\": \"" (nth message 3) "\",
+                  \"message\": \"" (:message message) "\",
+                  \"datetime\": \"" (-> message
+                                        :datetime
+                                        (coerce/to-string)) "\",
                   \"direction\": \"" (-> message
-                                         first
+                                         :direction
                                          str
                                          (str/replace-first ":" "")) "\"
               }
@@ -151,27 +144,26 @@
          }
      }"))
 
-(defn map-to-vector-new
-  [message-map]
-  [(keyword (get message-map "direction"))
-   (get message-map "message")
-   (get message-map "uuid")
-   (get message-map "date")
-   (get message-map "time")])
-
 (rf/reg-event-db
   :assoc-messages
   (fn [db [_ message-set]]
-    (->>
-      (-> message-set
-          (get "Items"))
-      (map map-to-vector-new)
-      (into [])
-      (concat (-> db
-                  :chat-log
-                  (get (:active-chat db))))
-      (assoc (:chat-log db) (:active-chat db))
-      (assoc db :chat-log))))
+    (let [messages (get message-set "Items")]
+      (->
+        (->> messages
+             (map util/keywordize)
+             (into [])
+             ; TODO: will definitely have to add another ordering mechanism
+             (sort-by :datetime time/after?)
+             (concat (-> db
+                         :chat-log
+                         (get (-> messages
+                                  first
+                                  (get "contact")))))
+             (assoc (:chat-log db) (-> messages
+                                       first
+                                       (get "contact")))
+             (assoc db :chat-log))
+        (assoc :loading-messages? false)))))
 
 (def default-api-params
   {:method          :post
@@ -185,46 +177,44 @@
    :on-failure      [:bad-http-result]})
 
 (rf/reg-event-fx
+  :upload-messages
+  (fn [{:keys [db]} [_ contact]]
+    {:http-xhrio (->>
+                   (-> db
+                       :chat-log
+                       (get contact))
+                   (map #(assoc default-api-params
+                           :params (post-params-create db
+                                                       %
+                                                       config/table-name)))
+                   (into []))}))
+
+(rf/reg-event-fx
   :send-message
   (fn [{:keys [db]} [_ message]]
     {:db         (add-message-to-db db message)
-     :http-xhrio {:method          :post
-                  :uri             config/api-url
-                  :timeout         8000
-                  :params          (post-params-create db
-                                                       message
-                                                       config/table-name)
-                  :format          (ajax/text-request-format)
-                  :response-format (ajax/json-response-format)
-                  :on-success      [:good-http-result]
-                  :on-failure      [:bad-http-result]}}))
+     :http-xhrio (assoc default-api-params
+                   :params (post-params-create db
+                                               message
+                                               config/table-name))}))
 
+; pulls up to 20 messages between the user and contact
 (rf/reg-event-fx
   :get-messages
   (fn [{:keys [db]} [_ _]]
-    {:http-xhrio {:method          :post
-                  :uri             config/api-url
-                  :headers         {:Authorization "Basic"}
-                  :timeout         8000
-                  :params          (post-params-query (:active-chat db)
-                                                      config/table-name)
-                  :format          (ajax/text-request-format)
-                  :response-format (ajax/json-response-format)
-                  :on-success      [:assoc-messages]
-                  :on-failure      [:assoc-messages]}}))
+    {:db         (assoc db :loading-messages? true)
+     :http-xhrio (assoc default-api-params
+                   :params (post-params-query (:active-chat db)
+                                              config/table-name)
+                   :on-success [:assoc-messages])}))
 
+; adds a generated message from the contact to the app-db and uploads it to the
+; DynamoDB table
 (rf/reg-event-fx
   :get-message
   (fn [{:keys [db]} [_ message]]
-    {:db (add-message-to-db db message)
-     :http-xhrio {:method          :post
-                  :uri             config/api-url
-                  :headers         {:Authorization "Basic"}
-                  :timeout         8000
-                  :params (post-params-create db
-                                              message
-                                              config/table-name)
-                  :format          (ajax/text-request-format)
-                  :response-format (ajax/json-response-format)
-                  :on-success      [:good-http-result]
-                  :on-failure      [:bad-http-result]}}))
+    {:db         (add-message-to-db db message)
+     :http-xhrio (assoc default-api-params
+                   :params (post-params-create db
+                                               message
+                                               config/table-name))}))

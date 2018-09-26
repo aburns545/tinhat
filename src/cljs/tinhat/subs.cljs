@@ -36,3 +36,8 @@
   :toggle-sidebar?
   (fn [db _]
     (:toggle-sidebar? db)))
+
+(rf/reg-sub
+  :loading-messages?
+  (fn [db _]
+    (:loading-messages? db)))

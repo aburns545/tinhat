@@ -4,15 +4,13 @@
     [tinhat.subs :as subs]
     [reagent.core :as r]
     [cljsjs.react-bootstrap]
-    [clojure.string :as str]
-    [tinhat.events :as events]
     [tinhat.util :as util]))
 
 (defn message-input
   [temp-message]
   (fn []
     [:div
-     [:input {:style        {:width "90%"
+     [:input {:style        {:width "100%"
                              :color (if (= @temp-message "Text Message")
                                       "#555"
                                       "#000")}
@@ -34,11 +32,10 @@
               :on-key-press #(when (-> @temp-message
                                        (not= "")
                                        (and (= "Enter" (.-key %))))
-                               (rf/dispatch [:send-message [:out
-                                                            @temp-message
-                                                            (random-uuid)
-                                                            (util/get-date)
-                                                            (util/get-time)]])
+                               (rf/dispatch [:send-message
+                                             (-> [:out
+                                                  @temp-message]
+                                                 util/create-message)])
                                (reset! temp-message ""))}]]))
 
 (defn show-chat-log
@@ -47,7 +44,7 @@
         messages (-> @(rf/subscribe [:chat-log])
                      (get recipient ["Invalid recipient"]))]
     [:div {:style {:border "1px solid black"
-                   :width  "90%"
+                   :width  "100%"
                    :height "525px"}}
      [:h3 {:style {:background "#7386D5"}}
       @(rf/subscribe [:active-chat])]
@@ -56,7 +53,7 @@
                     :overflow-y "auto"}}
       (for [message messages]
         [:div {:style {:width "100%"}}
-         [:table {:style (case (first message)
+         [:table {:style (case (:direction message)
                            :out {:background    "#afa"
                                  :float         "right"
                                  :padding       "10px"
@@ -67,17 +64,33 @@
                                 :padding       "10px"
                                 :margin-right  "50%"
                                 :margin-bottom "10px"})}
-          [:tr
-           [:td {:style {:text-align (case (first message)
-                                       :in "right"
-                                       :out "left")
-                         :fontSize   "10"}}
-            (->> message
-                 last
-                 (drop-last 3))]]
-          [:tr
-           [:td
-            (second message)]]]])]]))
+          [:tbody
+           [:tr
+            [:td {:style {:text-align (case (:direction message)
+                                        :in "right"
+                                        :out "left")
+                          :fontSize   "10"}}
+             (->> message
+                  :datetime
+                  util/get-time)]]
+           [:tr
+            [:td
+             (:message message)]]]]])
+      (when @(rf/subscribe [:loading-messages?])
+        [:div {:style {:width "100%"}}
+         [:table {:style {:background    "#afa"
+                          :float         "right"
+                          :padding       "10px"
+                          :margin-left   "50%"
+                          :margin-bottom "10px"}}
+          [:tbody
+           [:tr
+            [:td {:style {:text-align "left"
+                          :fontSize   "10"}}
+             (util/get-current-time)]]
+           [:tr
+            [:td
+             "loading..."]]]]])]]))
 
 (defn content
   [temp-message]
@@ -102,17 +115,15 @@
 
 (defn get-message-button
   []
-  [:button {:placeholder #(rf/dispatch [:get-message [:in
-                                                   (rand-nth ["Hi"
-                                                              "Hello"
-                                                              "New phone who dis?"
-                                                              "Stop contacting me"
-                                                              "wyd?"])
-                                                   (random-uuid)
-                                                   (util/get-date)
-                                                   (util/get-time)]])
-            :on-click #(rf/dispatch [:get-messages])
-            }
+  [:button {:placeholder #(rf/dispatch [:get-message
+                                        (-> [:in
+                                             (rand-nth ["Hi"
+                                                        "Hello"
+                                                        "New phone who dis?"
+                                                        "Stop contacting me"
+                                                        "wyd?"])
+                                             util/create-message])])
+            :on-click    #(rf/dispatch [:get-messages])}
    [:label "Send me a message"]])
 
 (defn toggle-sidebar
@@ -124,22 +135,22 @@
      [get-message-button]]]])
 
 (defn create-conversation
-  [temp-target temp-message]
+  [temp-contact temp-message]
   [:input {:style        {:background  "#7386D5"
                           :borderColor "#7386D5"
                           :color       "#fff"}
            :type         "text"
-           :value        @temp-target
-           :on-focus     #(reset! temp-target "")
-           :on-blur      #(reset! temp-target "+ Create Conversation")
-           :on-change    #(reset! temp-target (-> %
+           :value        @temp-contact
+           :on-focus     #(reset! temp-contact "")
+           :on-blur      #(reset! temp-contact "+ Create Conversation")
+           :on-change    #(reset! temp-contact (-> %
                                                   .-target
                                                   .-value))
            :on-key-press #(when (= "Enter" (.-key %))
-                            (rf/dispatch [:add-recipient @temp-target])
+                            (rf/dispatch [:add-contact @temp-contact])
                             (rf/dispatch [:set-active-chat
-                                          @temp-target])
-                            (reset! temp-target
+                                          @temp-contact])
+                            (reset! temp-contact
                                     "+ Create Conversation")
                             (reset! temp-message "Text Message"))}])
 
@@ -150,13 +161,15 @@
      [:a {:on-click #(when (-> recipient
                                (not= @(rf/subscribe [:active-chat])))
                        (rf/dispatch [:set-active-chat recipient])
+                       ; TODO: remove this once messages are uploaded
+                       ; (rf/dispatch [:upload-messages recipient])
                        (reset! temp-message "Text Message"))}
       [:label recipient]]]))
 
 (defn sidebar
   []
   (let [temp-message (r/atom "Text Message")
-        temp-target (r/atom "+ Create Conversation")]
+        new-contact (r/atom "+ Create Conversation")]
     (fn []
       [:div {:class "wrapper"}
        [:nav {:id    "sidebar"
@@ -167,12 +180,13 @@
          [:h3 "Placeholder"]]
         [:ul {:class "list-unstyled components"}
          [:li
-          [create-conversation temp-target temp-message]]
+          [create-conversation new-contact temp-message]]
          (show-recipients temp-message)]]
        [:div {:id    "content"
               :style {:overflow "hidden"}}
         [toggle-sidebar]
         [content temp-message]]])))
+
 (defn main-panel
   []
   [sidebar])

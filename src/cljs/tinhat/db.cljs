@@ -4,4 +4,5 @@
   {:time            (js/Date.)
    :chat-log        nil
    :active-chat     nil
-   :toggle-sidebar? true})
+   :toggle-sidebar? true
+   :loading-messages? false})
