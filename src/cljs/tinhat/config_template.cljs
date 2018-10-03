@@ -9,3 +9,5 @@
 
 ; The name of the DynamoDB table you will be using.
 (def table-name "")
+
+(def contact-table-name "")

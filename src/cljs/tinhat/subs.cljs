@@ -8,14 +8,9 @@
     (:time db)))
 
 (rf/reg-sub
-  :time-color
+  :message-index
   (fn [db _]
-    (:time-color db)))
-
-(rf/reg-sub
-  :temp-time-color
-  (fn [db _]
-    (:temp-time-color db)))
+    (:message-index db)))
 
 (rf/reg-sub
   :chat-log
@@ -41,3 +36,18 @@
   :loading-messages?
   (fn [db _]
     (:loading-messages? db)))
+
+(rf/reg-sub
+  :contacts
+  (fn [db _]
+    (:contacts db)))
+
+(rf/reg-sub
+  :need-messages?
+  (fn [db _]
+    (:need-messages? db)))
+
+(rf/reg-sub
+  :reload-flag
+  (fn [db _]
+    (:reload-flag db)))

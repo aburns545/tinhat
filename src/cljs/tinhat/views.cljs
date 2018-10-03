@@ -10,7 +10,7 @@
   [temp-message]
   (fn []
     [:div
-     [:input {:style        {:width "100%"
+     [:input {:style        {:width "90%"
                              :color (if (= @temp-message "Text Message")
                                       "#555"
                                       "#000")}
@@ -34,63 +34,70 @@
                                        (and (= "Enter" (.-key %))))
                                (rf/dispatch [:send-message
                                              (-> [:out
-                                                  @temp-message]
+                                                  @temp-message
+                                                  @(rf/subscribe [:message-index])]
                                                  util/create-message)])
+                               (rf/dispatch [:inc-message-index])
                                (reset! temp-message ""))}]]))
 
 (defn show-chat-log
   []
+  ; TODO: fix this
+  (when false                                               ; @(rf/subscribe [:need-messages?])
+    (rf/dispatch [:get-messages])
+    (rf/dispatch [:set-message-need false]))
   (let [recipient @(rf/subscribe [:active-chat])
         messages (-> @(rf/subscribe [:chat-log])
-                     (get recipient ["Invalid recipient"]))]
-    [:div {:style {:border "1px solid black"
-                   :width  "100%"
-                   :height "525px"}}
-     [:h3 {:style {:background "#7386D5"}}
-      @(rf/subscribe [:active-chat])]
-     [:div {:style {:width      "100%"
-                    :height     "481px"
-                    :overflow-y "auto"}}
-      (for [message messages]
-        [:div {:style {:width "100%"}}
-         [:table {:style (case (:direction message)
-                           :out {:background    "#afa"
-                                 :float         "right"
-                                 :padding       "10px"
-                                 :margin-left   "50%"
-                                 :margin-bottom "10px"}
-                           :in {:background    "#ddd"
-                                :float         "left"
-                                :padding       "10px"
-                                :margin-right  "50%"
-                                :margin-bottom "10px"})}
-          [:tbody
-           [:tr
-            [:td {:style {:text-align (case (:direction message)
-                                        :in "right"
-                                        :out "left")
-                          :fontSize   "10"}}
-             (->> message
-                  :datetime
-                  util/get-time)]]
-           [:tr
-            [:td
-             (:message message)]]]]])
-      (when @(rf/subscribe [:loading-messages?])
-        [:div {:style {:width "100%"}}
-         [:table {:style {:background    "#afa"
-                          :float         "right"
-                          :padding       "10px"
-                          :margin-left   "50%"
-                          :margin-bottom "10px"}}
-          [:tbody
-           [:tr
-            [:td {:style {:text-align "left"
-                          :fontSize   "10"}}
-             (util/get-current-time)]]
-           [:tr
-            [:td
-             "loading..."]]]]])]]))
+                     (get recipient))]
+    (when (util/nil-or-empty? messages)
+      [:div {:style {:border "1px solid black"
+                     :width  "90%"
+                     :height "525px"}}
+       [:h3 {:style {:background "#7386D5"}}
+        @(rf/subscribe [:active-chat])]
+       [:div {:style {:width      "100%"
+                      :height     "481px"
+                      :overflow-y "auto"}}
+        (for [message messages]
+          [:div {:style {:width "100%"}
+                 :key   (:uuid message)}
+           [:table {:style (case (:direction message)
+                             :out {:background    "#afa"
+                                   :float         "right"
+                                   :padding       "10px"
+                                   :margin-left   "50%"
+                                   :margin-bottom "10px"}
+                             :in {:background    "#ddd"
+                                  :float         "left"
+                                  :padding       "10px"
+                                  :margin-right  "50%"
+                                  :margin-bottom "10px"})}
+            [:tbody
+             [:tr
+              [:td {:style {:text-align (case (:direction message)
+                                          :in "right"
+                                          :out "left")
+                            :fontSize   10}}
+               (->> message
+                    :datetime
+                    util/get-time)]]
+             [:tr
+              [:td
+               (:message message)]]]]])
+        (when @(rf/subscribe [:loading-messages?])
+          [:div {:style {:width "100%"}}
+           [:table {:style {:background    "#afa"
+                            :float         "right"
+                            :padding       "10px"
+                            :margin-left   "50%"
+                            :margin-bottom "10px"}}
+            [:tbody
+             [:tr
+              [:td {:style {:text-align "left"
+                            :fontSize   "10"}}
+               (util/get-current-time)]]
+             [:tr
+              [:td "loading..."]]]]])]])))
 
 (defn content
   [temp-message]
@@ -134,6 +141,7 @@
      [toggle-button]
      [get-message-button]]]])
 
+; TODO: refactor this to work with new contact implementation
 (defn create-conversation
   [temp-contact temp-message]
   [:input {:style        {:background  "#7386D5"
@@ -144,8 +152,8 @@
            :on-focus     #(reset! temp-contact "")
            :on-blur      #(reset! temp-contact "+ Create Conversation")
            :on-change    #(reset! temp-contact (-> %
-                                                  .-target
-                                                  .-value))
+                                                   .-target
+                                                   .-value))
            :on-key-press #(when (= "Enter" (.-key %))
                             (rf/dispatch [:add-contact @temp-contact])
                             (rf/dispatch [:set-active-chat
@@ -154,23 +162,28 @@
                                     "+ Create Conversation")
                             (reset! temp-message "Text Message"))}])
 
-(defn show-recipients
+(defn show-contacts
   [temp-message]
-  (for [recipient (keys @(rf/subscribe [:chat-log]))]
-    [:li
-     [:a {:on-click #(when (-> recipient
-                               (not= @(rf/subscribe [:active-chat])))
-                       (rf/dispatch [:set-active-chat recipient])
-                       ; TODO: remove this once messages are uploaded
-                       ; (rf/dispatch [:upload-messages recipient])
-                       (reset! temp-message "Text Message"))}
-      [:label recipient]]]))
+  (for [contact-map @(rf/subscribe [:contacts])]
+    (let [contact (:name contact-map)]
+      [:li {:key contact}
+       [:a {:on-click #(when (-> contact
+                                 (not= @(rf/subscribe [:active-chat])))
+                         (rf/dispatch [:set-active-chat contact])
+                         (when (-> @(rf/subscribe [:chat-log])
+                                   (get contact)
+                                   util/nil-or-empty?)
+                           (rf/dispatch [:get-messages]))
+                         (reset! temp-message "Text Message"))}
+        [:label contact]]])))
 
 (defn sidebar
   []
   (let [temp-message (r/atom "Text Message")
-        new-contact (r/atom "+ Create Conversation")]
+        new-contact (r/atom "+ Create Conversation")
+        reload-flag @(rf/subscribe [:reload-flag])]
     (fn []
+      (when reload-flag)
       [:div {:class "wrapper"}
        [:nav {:id    "sidebar"
               :class (if @(rf/subscribe [:toggle-sidebar?])
@@ -181,7 +194,7 @@
         [:ul {:class "list-unstyled components"}
          [:li
           [create-conversation new-contact temp-message]]
-         (show-recipients temp-message)]]
+         (show-contacts temp-message)]]
        [:div {:id    "content"
               :style {:overflow "hidden"}}
         [toggle-sidebar]

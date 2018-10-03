@@ -2,74 +2,102 @@
   (:require
     [re-frame.core :as rf]
     [tinhat.db :as db]
-    [clojure.string :as str]
     [day8.re-frame.http-fx]
     [ajax.core :as ajax]
     [tinhat.config :as config]
     [tinhat.util :as util]
-    [cljs-time.core :as time]
-    [cljs-time.coerce :as coerce]))
+    [tinhat.payloads :as payload]
+    [cljs-time.core :as time]))
 
-(defn long-message
+(defn dispatch-timer-event
   []
-  (str "What the jiminy crickets did you just flaming say about me,"
-       " you little bozo? I’ll have you know I graduated top of my "
-       "class in the Cub Scouts, and I’ve been involved in numerous "
-       "secret camping trips in Wyoming, and I have over 300 confirmed "
-       "knots. I am trained in first aid and I’m the top bandager in "
-       "the entire US Boy Scouts (of America). You are nothing to me "
-       "but just another friendly face. I will clean your wounds for "
-       "you with precision the likes of which has never been seen "
-       "before on this annual trip, mark my words. You think you can "
-       "get away with saying those shenanigans to me over the Internet"
-       "? Think again, finkle. As we speak I am contacting my secret "
-       "network of MSN friends across the USA and your IP is being "
-       "traced right now so you better prepare for the seminars, man. "
-       "The storm that wipes out the pathetic little thing you call "
-       "your bake sale. You’re frigging done, kid. I can be anywhere, "
-       "anytime, and I can tie knots in over seven hundred ways, and "
-       "that’s just with my bare hands. Not only am I extensively "
-       "trained in road safety, but I have access to the entire manual "
-       "of the United States Boy Scouts (of America) and I will use it "
-       "to its full extent to train your miserable butt on the facts "
-       "of the continents, you little schmuck. If only you could have "
-       "known what unholy retribution your little “clever” comment was "
-       "about to bring down upon you, maybe you would have held your "
-       "silly tongue. But you couldn’t, you didn’t, and now you’re "
-       "paying the price, you goshdarned sillyhead. I will throw "
-       "leaves all over you and you will dance in them. You’re friggin "
-       "done, kiddo."))
+  (let [now (js/Date.)]
+    (rf/dispatch [:timer now])))
 
-; TODO: probably will need to use ordered-map at some point
+(defonce do-timer (js/setInterval dispatch-timer-event 1000))
+
 (rf/reg-event-db
+  :timer
+  (fn [db [_ new-time]]
+    (assoc db :time new-time
+              :message-index 0)))
+
+(rf/reg-event-db
+  :inc-message-index
+  (fn [db _]
+    (->> db
+         :message-index
+         inc
+         (assoc db :message-index))))
+
+;TODO: Need to come up with proper error handling
+(def default-api-params
+  {:method          :post
+   :uri             config/api-url
+   :headers         {:Authorization "Basic Og=="}
+   :timeout         8000
+   :params          nil
+   :format          (ajax/text-request-format)
+   :response-format (ajax/json-response-format)
+   :on-success      [:good-http-result]
+   :on-failure      [:log-error]})
+
+(rf/reg-event-fx
+  :add-contacts
+  (fn [{:keys [db]} [_ payload]]
+    (let [contacts (as-> payload p
+                         (get p "Items")
+                         (map util/convert-contact p)
+                         (into [] p)
+                         (sort-by :last-sent time/after? p))]
+      {:db         (-> db
+                       (assoc :contacts contacts
+                              :active-chat (-> contacts
+                                               first
+                                               :name)
+                              :reload-flag (not (:reload-flag db))))
+       :http-xhrio (assoc default-api-params
+                     :params (payload/get-messages (-> contacts
+                                                       first
+                                                       :name)
+                                                   config/message-table)
+                     :on-success [:assoc-messages])})))
+
+(def get-contacts
+  (assoc default-api-params
+    :params (payload/get-contacts config/contact-table)
+    :on-success [:add-contacts]
+    :on-failure [:log-error]))
+
+(defn get-messages
+  [db]
+  (assoc default-api-params
+    :params (payload/get-messages (:active-chat db)
+                                  config/message-table)
+    :on-success [:assoc-messages]))
+
+; TODO: Potential areas of failure start here
+(rf/reg-event-fx
   ::initialize-db
+  (fn [{:keys [db]} _]
+    {:db         (merge db db/default-db)
+     :http-xhrio (assoc default-api-params
+                   :params (payload/get-contacts config/contact-table)
+                   :on-success [:add-contacts]
+                   :on-failure [:log-error])}))
+
+(rf/reg-event-fx
+  :get-contacts
   (fn [_ _]
-    (as-> db/default-db db
-          (assoc db :chat-log {"Jimmy"  (-> [[:in "hi"]
-                                             [:out "hello"]]
-                                            util/create-messages)
-                               "Johnny" (-> [[:out "bye"]
-                                             [:in "goodbye"]]
-                                            util/create-messages)
-                               "Jamie"  (-> [[:out "message 1"]
-                                             [:out "message 2"]
-                                             [:in "message 3"]]
-                                            util/create-messages)
-                               "Jammy"  (-> [[:out "blah"]
-                                             [:in "message"]
-                                             [:out "ah"]
-                                             [:out "eh"]]
-                                            util/create-messages)
-                               "Junie"  (-> [[:in "abasd"]
-                                             [:out "What?"]
-                                             [:in "akl;jk"]
-                                             [:in "tesfdsg"]
-                                             [:in "skdflsfjkd"]]
-                                            util/create-messages)
-                               "Jerry"  (-> [[:out "<expletive>"]
-                                             [:in (long-message)]]
-                                            util/create-messages)})
-          (assoc db :active-chat (first (keys (:chat-log db)))))))
+    {:http-xhrio (assoc default-api-params
+                   :params (payload/get-contacts config/contact-table)
+                   :on-success [:add-contacts]
+                   :on-failure [:log-error])}))
+
+(rf/reg-event-db
+  :log-error
+  (fn [_ [_ error]]
+    (js/console.log error)))
 
 (rf/reg-event-db
   :set-active-chat
@@ -92,6 +120,16 @@
     (assoc db :toggle-sidebar? (not toggle))))
 
 (rf/reg-event-db
+  :toggle-reload-flag
+  (fn [db [_ _]]
+    (assoc db :reload-flag (not (:reload-flag db)))))
+
+(rf/reg-event-db
+  :set-message-need
+  (fn [db [_ message-need]]
+    (assoc db :need-messages? message-need)))
+
+(rf/reg-event-db
   :add-contact
   (fn [db [_ contact]]
     (as-> contact r
@@ -107,43 +145,6 @@
        (assoc (:chat-log db) (:active-chat db))
        (assoc db :chat-log)))
 
-(defn post-params-create
-  [db message tableName]
-  (str
-    "{
-         \"operation\": \"create\",
-         \"tableName\": \"" tableName "\",
-         \"payload\": {
-             \"Item\": {
-                 \"uuid\": \"" (:uuid message) "\",
-                  \"contact\": \"" (:active-chat db) "\",
-                  \"message\": \"" (:message message) "\",
-                  \"datetime\": \"" (-> message
-                                        :datetime
-                                        (coerce/to-string)) "\",
-                  \"direction\": \"" (-> message
-                                         :direction
-                                         str
-                                         (str/replace-first ":" "")) "\"
-              }
-          }
-      }"))
-
-(defn post-params-query
-  [contact tableName]
-  (str
-    "{
-         \"operation\": \"query\",
-         \"tableName\": \"" tableName "\",
-         \"payload\": {
-             \"KeyConditionExpression\": \"contact = :person\",
-             \"ExpressionAttributeValues\": {
-                 \":person\": \"" contact "\"
-             },
-             \"Limit\": 20
-         }
-     }"))
-
 (rf/reg-event-db
   :assoc-messages
   (fn [db [_ message-set]]
@@ -152,29 +153,20 @@
         (->> messages
              (map util/keywordize)
              (into [])
-             ; TODO: will definitely have to add another ordering mechanism
-             (sort-by :datetime time/after?)
              (concat (-> db
                          :chat-log
                          (get (-> messages
                                   first
                                   (get "contact")))))
+             (sort-by :message-index)
+             (sort-by :datetime time/before?)
+             (into [])
              (assoc (:chat-log db) (-> messages
                                        first
                                        (get "contact")))
              (assoc db :chat-log))
-        (assoc :loading-messages? false)))))
-
-(def default-api-params
-  {:method          :post
-   :uri             config/api-url
-   :headers         {:Authorization "Basic"}
-   :timeout         8000
-   :params          nil
-   :format          (ajax/text-request-format)
-   :response-format (ajax/json-response-format)
-   :on-success      [:good-http-result]
-   :on-failure      [:bad-http-result]})
+        (assoc :loading-messages? false
+               :reload-flag (not (:reload-flag db)))))))
 
 (rf/reg-event-fx
   :upload-messages
@@ -184,9 +176,8 @@
                        :chat-log
                        (get contact))
                    (map #(assoc default-api-params
-                           :params (post-params-create db
-                                                       %
-                                                       config/table-name)))
+                           :params (->> config/message-table
+                                        (payload/upload-message db %))))
                    (into []))}))
 
 (rf/reg-event-fx
@@ -194,9 +185,9 @@
   (fn [{:keys [db]} [_ message]]
     {:db         (add-message-to-db db message)
      :http-xhrio (assoc default-api-params
-                   :params (post-params-create db
-                                               message
-                                               config/table-name))}))
+                   :params (payload/upload-message db
+                                                   message
+                                                   config/message-table))}))
 
 ; pulls up to 20 messages between the user and contact
 (rf/reg-event-fx
@@ -204,8 +195,8 @@
   (fn [{:keys [db]} [_ _]]
     {:db         (assoc db :loading-messages? true)
      :http-xhrio (assoc default-api-params
-                   :params (post-params-query (:active-chat db)
-                                              config/table-name)
+                   :params (payload/get-messages (:active-chat db)
+                                                 config/message-table)
                    :on-success [:assoc-messages])}))
 
 ; adds a generated message from the contact to the app-db and uploads it to the
@@ -215,6 +206,6 @@
   (fn [{:keys [db]} [_ message]]
     {:db         (add-message-to-db db message)
      :http-xhrio (assoc default-api-params
-                   :params (post-params-create db
-                                               message
-                                               config/table-name))}))
+                   :params (payload/upload-message db
+                                                   message
+                                                   config/message-table))}))
