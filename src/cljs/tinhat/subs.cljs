@@ -23,11 +23,6 @@
     (:active-chat db)))
 
 (rf/reg-sub
-  :key-code
-  (fn [db _]
-    (:key-code db)))
-
-(rf/reg-sub
   :toggle-sidebar?
   (fn [db _]
     (:toggle-sidebar? db)))
@@ -41,11 +36,6 @@
   :contacts
   (fn [db _]
     (:contacts db)))
-
-(rf/reg-sub
-  :need-messages?
-  (fn [db _]
-    (:need-messages? db)))
 
 (rf/reg-sub
   :reload-flag

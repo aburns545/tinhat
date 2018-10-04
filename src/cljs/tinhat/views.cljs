@@ -42,36 +42,26 @@
 
 (defn show-chat-log
   []
-  ; TODO: fix this
-  (when false                                               ; @(rf/subscribe [:need-messages?])
-    (rf/dispatch [:get-messages])
-    (rf/dispatch [:set-message-need false]))
   (let [recipient @(rf/subscribe [:active-chat])
         messages (-> @(rf/subscribe [:chat-log])
                      (get recipient))]
-    (when (util/nil-or-empty? messages)
-      [:div {:style {:border "1px solid black"
-                     :width  "90%"
-                     :height "525px"}}
-       [:h3 {:style {:background "#7386D5"}}
-        @(rf/subscribe [:active-chat])]
-       [:div {:style {:width      "100%"
-                      :height     "481px"
-                      :overflow-y "auto"}}
+    [:div {:style {:border "1px solid black"
+                   :width  "90%"
+                   :height "525px"}}
+     [:h3 {:style {:background "#7386D5"}}
+      @(rf/subscribe [:active-chat])]
+     [:div {:style {:width      "100%"
+                    :height     "481px"
+                    :overflow-y "auto"}}
+      (when (-> messages
+                util/nil-or-empty?
+                not)
         (for [message messages]
           [:div {:style {:width "100%"}
                  :key   (:uuid message)}
            [:table {:style (case (:direction message)
-                             :out {:background    "#afa"
-                                   :float         "right"
-                                   :padding       "10px"
-                                   :margin-left   "50%"
-                                   :margin-bottom "10px"}
-                             :in {:background    "#ddd"
-                                  :float         "left"
-                                  :padding       "10px"
-                                  :margin-right  "50%"
-                                  :margin-bottom "10px"})}
+                             :out util/outbound-message-styling
+                             :in util/inbound-message-styling)}
             [:tbody
              [:tr
               [:td {:style {:text-align (case (:direction message)
@@ -83,21 +73,17 @@
                     util/get-time)]]
              [:tr
               [:td
-               (:message message)]]]]])
-        (when @(rf/subscribe [:loading-messages?])
-          [:div {:style {:width "100%"}}
-           [:table {:style {:background    "#afa"
-                            :float         "right"
-                            :padding       "10px"
-                            :margin-left   "50%"
-                            :margin-bottom "10px"}}
-            [:tbody
-             [:tr
-              [:td {:style {:text-align "left"
-                            :fontSize   "10"}}
-               (util/get-current-time)]]
-             [:tr
-              [:td "loading..."]]]]])]])))
+               (:message message)]]]]]))
+      (when @(rf/subscribe [:loading-messages?])
+        [:div {:style {:width "100%"}}
+         [:table {:style util/outbound-message-styling}
+          [:tbody
+           [:tr
+            [:td {:style {:text-align "left"
+                          :fontSize   "10"}}
+             (util/get-current-time)]]
+           [:tr
+            [:td "loading..."]]]]])]]))
 
 (defn content
   [temp-message]
@@ -173,7 +159,9 @@
                          (when (-> @(rf/subscribe [:chat-log])
                                    (get contact)
                                    util/nil-or-empty?)
-                           (rf/dispatch [:get-messages]))
+                           (rf/dispatch [:get-messages])
+                           (js/console.log (-> @(rf/subscribe [:chat-log])
+                                               (get contact))))
                          (reset! temp-message "Text Message"))}
         [:label contact]]])))
 

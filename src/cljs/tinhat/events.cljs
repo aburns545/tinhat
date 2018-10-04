@@ -66,8 +66,7 @@
 (def get-contacts
   (assoc default-api-params
     :params (payload/get-contacts config/contact-table)
-    :on-success [:add-contacts]
-    :on-failure [:log-error]))
+    :on-success [:add-contacts]))
 
 (defn get-messages
   [db]
@@ -83,16 +82,14 @@
     {:db         (merge db db/default-db)
      :http-xhrio (assoc default-api-params
                    :params (payload/get-contacts config/contact-table)
-                   :on-success [:add-contacts]
-                   :on-failure [:log-error])}))
+                   :on-success [:add-contacts])}))
 
 (rf/reg-event-fx
   :get-contacts
   (fn [_ _]
     {:http-xhrio (assoc default-api-params
                    :params (payload/get-contacts config/contact-table)
-                   :on-success [:add-contacts]
-                   :on-failure [:log-error])}))
+                   :on-success [:add-contacts])}))
 
 (rf/reg-event-db
   :log-error
@@ -110,11 +107,6 @@
     (assoc db field (field db/default-db))))
 
 (rf/reg-event-db
-  :key-code
-  (fn [db [_ key-code]]
-    (assoc db :key-code key-code)))
-
-(rf/reg-event-db
   :toggle-sidebar
   (fn [db [_ toggle]]
     (assoc db :toggle-sidebar? (not toggle))))
@@ -123,11 +115,6 @@
   :toggle-reload-flag
   (fn [db [_ _]]
     (assoc db :reload-flag (not (:reload-flag db)))))
-
-(rf/reg-event-db
-  :set-message-need
-  (fn [db [_ message-need]]
-    (assoc db :need-messages? message-need)))
 
 (rf/reg-event-db
   :add-contact
